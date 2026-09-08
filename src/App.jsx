@@ -105,6 +105,38 @@ export default function App() {
     await saveJSON("plans", plans.filter((p) => p.id !== planId));
   }
 
+  async function addPlanPhoto(planId, photoDataUri) {
+    const newPlans = plans.map((p) =>
+      p.id === planId
+        ? { ...p, photos: [...(p.photos || []), { id: uid(), url: photoDataUri, authorId: currentMember }] }
+        : p
+    );
+    await saveJSON("plans", newPlans);
+  }
+
+  async function deletePlanPhoto(planId, photoId) {
+    const newPlans = plans.map((p) =>
+      p.id === planId ? { ...p, photos: (p.photos || []).filter((ph) => ph.id !== photoId) } : p
+    );
+    await saveJSON("plans", newPlans);
+  }
+
+  async function addPlanComment(planId, text) {
+    const newPlans = plans.map((p) =>
+      p.id === planId
+        ? { ...p, comments: [...(p.comments || []), { id: uid(), text, authorId: currentMember, ts: Date.now() }] }
+        : p
+    );
+    await saveJSON("plans", newPlans);
+  }
+
+  async function deletePlanComment(planId, commentId) {
+    const newPlans = plans.map((p) =>
+      p.id === planId ? { ...p, comments: (p.comments || []).filter((c) => c.id !== commentId) } : p
+    );
+    await saveJSON("plans", newPlans);
+  }
+
   async function addRecord(record) {
     const newRecords = [{ ...record, id: uid(), authorId: currentMember, likes: [] }, ...records];
     await saveJSON("records", newRecords);
@@ -136,7 +168,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 24px", background: "#2e3a24", color: "#f6f1e7", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ fontWeight: "bold", fontSize: "20px", letterSpacing: "1px" }}>🍇 La Vinya</div>
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-          {[["inici", "Inici"], ["colla", "La colla"], ["plans", "Plans"], ["records", "Records"]].map(([key, label]) => (
+          {[["inici", "Inici"], ["colla", "Membres"], ["plans", "Plans"], ["records", "Records"]].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{ background: tab === key ? "#7c5b8e" : "transparent", border: "none", color: "#f6f1e7", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "14px" }}>
               {label}
             </button>
@@ -185,7 +217,20 @@ export default function App() {
         <>
           {tab === "inici" && <Inici nextPlan={nextPlan} records={records} setTab={setTab} />}
           {tab === "colla" && <Colla profiles={profiles} currentMember={currentMember} updateProfile={updateProfile} />}
-          {tab === "plans" && <Plans plans={plans} currentMember={currentMember} memberById={memberById} addPlan={addPlan} respondPlan={respondPlan} deletePlan={deletePlan} />}
+          {tab === "plans" && (
+            <Plans
+              plans={plans}
+              currentMember={currentMember}
+              memberById={memberById}
+              addPlan={addPlan}
+              respondPlan={respondPlan}
+              deletePlan={deletePlan}
+              addPlanPhoto={addPlanPhoto}
+              deletePlanPhoto={deletePlanPhoto}
+              addPlanComment={addPlanComment}
+              deletePlanComment={deletePlanComment}
+            />
+          )}
           {tab === "records" && <Records records={records} currentMember={currentMember} memberById={memberById} addRecord={addRecord} toggleLike={toggleLike} deleteRecord={deleteRecord} />}
         </>
       )}
@@ -224,17 +269,13 @@ function StatCard({ label, sub }) {
 
 function Colla({ profiles, currentMember, updateProfile }) {
   const [editingId, setEditingId] = useState(null);
-  const [nickname, setNickname] = useState("");
-  const [phrase, setPhrase] = useState("");
-  const [role, setRole] = useState("");
+  const [subtitle, setSubtitle] = useState("");
   const [photo, setPhoto] = useState(null);
   const fileRef = useRef(null);
 
   function startEdit(m) {
     const p = profiles[m.id] || {};
-    setNickname(p.nickname || "");
-    setPhrase(p.phrase || "");
-    setRole(p.role || "");
+    setSubtitle(p.subtitle || "");
     setPhoto(p.photo || null);
     setEditingId(m.id);
   }
@@ -249,15 +290,15 @@ function Colla({ profiles, currentMember, updateProfile }) {
 
   function save(e) {
     e.preventDefault();
-    updateProfile(editingId, { nickname, phrase, role, photo });
+    updateProfile(editingId, { subtitle, photo });
     setEditingId(null);
   }
 
   return (
     <div style={{ padding: "30px" }}>
-      <h2 style={{ color: "#4a5d3a" }}>La colla</h2>
+      <h2 style={{ color: "#4a5d3a" }}>Membres</h2>
       <p style={{ color: "#666", fontSize: "14px", marginBottom: "20px" }}>
-        13 membres. Cadascú pot editar el seu propi perfil (foto, sobrenom, frase i rol) un cop identificat amb el seu PIN.
+        13 membres. Cadascú pot editar el seu propi perfil (foto i subtítol) un cop identificat amb el seu PIN.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "16px" }}>
         {MEMBERS.map((m) => {
@@ -274,10 +315,9 @@ function Colla({ profiles, currentMember, updateProfile }) {
                 </div>
               )}
               <div style={{ fontWeight: "bold" }}>{m.name}</div>
-              {p.nickname && <div style={{ fontSize: "12px", color: "#7c5b8e" }}>"{p.nickname}"</div>}
-              {p.role && <div style={{ fontSize: "11px", color: "#999", marginTop: "2px" }}>{p.role}</div>}
-              {p.phrase && <div style={{ fontSize: "12px", color: "#555", marginTop: "6px", fontStyle: "italic" }}>“{p.phrase}”</div>}
-              {!p.nickname && !p.role && !p.phrase && <div style={{ fontSize: "12px", color: "#bbb", marginTop: "4px" }}>Membre de La Vinya</div>}
+              <div style={{ fontSize: "12px", color: "#999", marginTop: "2px" }}>
+                {p.subtitle || "Membre de La Vinya"}
+              </div>
               {isMe && !isEditing && (
                 <button onClick={() => startEdit(m)} style={{ marginTop: "10px", background: "#eee", border: "none", padding: "5px 10px", borderRadius: "8px", fontSize: "11px", cursor: "pointer" }}>
                   Edita el meu perfil
@@ -285,9 +325,7 @@ function Colla({ profiles, currentMember, updateProfile }) {
               )}
               {isEditing && (
                 <form onSubmit={save} style={{ marginTop: "10px", display: "grid", gap: "6px", textAlign: "left" }}>
-                  <input placeholder="Sobrenom" value={nickname} onChange={(e) => setNickname(e.target.value)} style={{ ...inputStyle, fontSize: "12px", padding: "5px" }} />
-                  <input placeholder="Rol dins la colla" value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inputStyle, fontSize: "12px", padding: "5px" }} />
-                  <input placeholder="Frase característica" value={phrase} onChange={(e) => setPhrase(e.target.value)} style={{ ...inputStyle, fontSize: "12px", padding: "5px" }} />
+                  <input placeholder="Subtítol (p. ex. el conductor oficial)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} style={{ ...inputStyle, fontSize: "12px", padding: "5px" }} />
                   <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} style={{ fontSize: "11px" }} />
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button type="submit" style={{ flex: 1, background: "#4a5d3a", color: "#fff", border: "none", padding: "6px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}>Desa</button>
@@ -305,13 +343,14 @@ function Colla({ profiles, currentMember, updateProfile }) {
 
 const inputStyle = { padding: "8px", borderRadius: "8px", border: "1px solid #ccc", fontFamily: "inherit", flex: 1, boxSizing: "border-box" };
 
-function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deletePlan }) {
+function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deletePlan, addPlanPhoto, deletePlanPhoto, addPlanComment, deletePlanComment }) {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [place, setPlace] = useState("");
   const [description, setDescription] = useState("");
+  const [openPlanId, setOpenPlanId] = useState(null);
 
   function submit(e) {
     e.preventDefault();
@@ -319,6 +358,23 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
     addPlan({ name, date, time, place, description });
     setName(""); setDate(""); setTime(""); setPlace(""); setDescription("");
     setShowForm(false);
+  }
+
+  const openPlan = plans.find((p) => p.id === openPlanId);
+
+  if (openPlan) {
+    return (
+      <PlanDetail
+        plan={openPlan}
+        currentMember={currentMember}
+        memberById={memberById}
+        onBack={() => setOpenPlanId(null)}
+        addPlanPhoto={addPlanPhoto}
+        deletePlanPhoto={deletePlanPhoto}
+        addPlanComment={addPlanComment}
+        deletePlanComment={deletePlanComment}
+      />
+    );
   }
 
   return (
@@ -350,6 +406,8 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
           const confirmed = Object.entries(p.responses || {}).filter(([, r]) => r === "va");
           const maybe = Object.entries(p.responses || {}).filter(([, r]) => r === "potser");
           const myResponse = currentMember ? p.responses?.[currentMember] : null;
+          const photoCount = (p.photos || []).length;
+          const commentCount = (p.comments || []).length;
           return (
             <div key={p.id} style={{ background: "#fff", borderRadius: "14px", padding: "18px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -365,16 +423,116 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
               <div style={{ fontSize: "12px", color: "#999", marginTop: "8px" }}>Creat per {memberById(p.creatorId)?.name || "?"}</div>
               <div style={{ fontSize: "13px", marginTop: "10px" }}><strong>Hi van ({confirmed.length}):</strong> {confirmed.map(([id]) => memberById(id)?.name).join(", ") || "—"}</div>
               <div style={{ fontSize: "13px" }}><strong>Potser ({maybe.length}):</strong> {maybe.map(([id]) => memberById(id)?.name).join(", ") || "—"}</div>
-              {currentMember && (
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                  <button onClick={() => respondPlan(p.id, "va")} style={{ background: myResponse === "va" ? "#4a5d3a" : "#eee", color: myResponse === "va" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Hi vaig</button>
-                  <button onClick={() => respondPlan(p.id, "potser")} style={{ background: myResponse === "potser" ? "#7c5b8e" : "#eee", color: myResponse === "potser" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Potser</button>
-                </div>
-              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+                {currentMember && (
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => respondPlan(p.id, "va")} style={{ background: myResponse === "va" ? "#4a5d3a" : "#eee", color: myResponse === "va" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Hi vaig</button>
+                    <button onClick={() => respondPlan(p.id, "potser")} style={{ background: myResponse === "potser" ? "#7c5b8e" : "#eee", color: myResponse === "potser" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Potser</button>
+                  </div>
+                )}
+                <button
+                  onClick={() => setOpenPlanId(p.id)}
+                  style={{ background: "transparent", border: "none", color: "#7c5b8e", cursor: "pointer", fontSize: "12px", textDecoration: "underline", marginLeft: "auto" }}
+                >
+                  📷 Fotos i comentaris {photoCount + commentCount > 0 ? `(${photoCount + commentCount})` : ""}
+                </button>
+              </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PlanDetail({ plan, currentMember, memberById, onBack, addPlanPhoto, deletePlanPhoto, addPlanComment, deletePlanComment }) {
+  const [commentText, setCommentText] = useState("");
+  const fileRef = useRef(null);
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => addPlanPhoto(plan.id, reader.result);
+    reader.readAsDataURL(file);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function submitComment(e) {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    addPlanComment(plan.id, commentText.trim());
+    setCommentText("");
+  }
+
+  const photos = plan.photos || [];
+  const comments = [...(plan.comments || [])].sort((a, b) => a.ts - b.ts);
+
+  return (
+    <div style={{ padding: "30px", maxWidth: "560px" }}>
+      <button onClick={onBack} style={{ background: "transparent", border: "none", color: "#4a5d3a", cursor: "pointer", fontSize: "13px", marginBottom: "12px" }}>
+        ← Tornar als plans
+      </button>
+      <h2 style={{ color: "#4a5d3a", marginBottom: "0" }}>{plan.name}</h2>
+      <div style={{ fontSize: "13px", color: "#666", marginBottom: "20px" }}>
+        {plan.date} {plan.time && `· ${plan.time}`} {plan.place && `· ${plan.place}`}
+      </div>
+
+      <h3 style={{ fontSize: "15px", color: "#4a5d3a" }}>Fotos</h3>
+      {currentMember && (
+        <div style={{ marginBottom: "12px" }}>
+          <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} />
+        </div>
+      )}
+      {photos.length === 0 && <p style={{ color: "#999", fontSize: "13px" }}>Encara no hi ha cap foto.</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: "8px", marginBottom: "24px" }}>
+        {photos.map((ph) => (
+          <div key={ph.id} style={{ position: "relative" }}>
+            <img src={ph.url} alt="" style={{ width: "100%", height: "100px", objectFit: "cover", borderRadius: "8px", display: "block" }} />
+            {currentMember === ph.authorId && (
+              <button
+                onClick={() => deletePlanPhoto(plan.id, ph.id)}
+                style={{ position: "absolute", top: "4px", right: "4px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "6px", fontSize: "10px", cursor: "pointer", padding: "2px 5px" }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ fontSize: "15px", color: "#4a5d3a" }}>Comentaris</h3>
+      <div style={{ display: "grid", gap: "8px", marginBottom: "14px" }}>
+        {comments.length === 0 && <p style={{ color: "#999", fontSize: "13px" }}>Encara no hi ha cap comentari.</p>}
+        {comments.map((c) => (
+          <div key={c.id} style={{ background: "#fff", borderRadius: "10px", padding: "10px 12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "12px", fontWeight: "bold", color: "#4a5d3a" }}>{memberById(c.authorId)?.name || "?"}</span>
+              {currentMember === c.authorId && (
+                <button onClick={() => deletePlanComment(plan.id, c.id)} style={{ background: "transparent", border: "none", color: "#a13", cursor: "pointer", fontSize: "11px" }}>
+                  Elimina
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: "13px", marginTop: "2px" }}>{c.text}</div>
+          </div>
+        ))}
+      </div>
+      {currentMember ? (
+        <form onSubmit={submitComment} style={{ display: "flex", gap: "8px" }}>
+          <input
+            placeholder="Escriu un comentari..."
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            style={{ ...inputStyle }}
+          />
+          <button type="submit" style={{ background: "#4a5d3a", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", cursor: "pointer" }}>
+            Envia
+          </button>
+        </form>
+      ) : (
+        <p style={{ color: "#999", fontSize: "13px" }}>Selecciona el teu nom a dalt per comentar o pujar fotos.</p>
+      )}
     </div>
   );
 }
