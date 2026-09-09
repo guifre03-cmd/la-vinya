@@ -1,32 +1,53 @@
-// Petita capa d'accés a Firestore: cada "clau" és un document dins la col·lecció "la-vinya".
-import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+// Capa d'accés a Firestore basada en col·leccions: cada element (record, pla,
+// anècdota, perfil, PIN) és el seu propi document independent. Això evita que
+// dos membres es trepitgin en escriure alhora, i que un document compartit
+// creixi fins a superar el límit de mida de Firestore (1 MB).
+import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  arrayUnion,
+  arrayRemove,
+} from "firebase/firestore";
 import { db } from "./firebase";
 
-export async function loadJSON(key, fallback) {
+export function subscribeCollection(name, callback) {
+  return onSnapshot(
+    collection(db, name),
+    (snap) => {
+      const items = [];
+      snap.forEach((d) => items.push({ id: d.id, ...d.data() }));
+      callback(items);
+    },
+    (err) => console.error(`Error escoltant "${name}"`, err)
+  );
+}
+
+export async function setItem(collectionName, id, data) {
   try {
-    const ref = doc(db, "la-vinya", key);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return fallback;
-    return snap.data().value;
+    await setDoc(doc(db, collectionName, id), data, { merge: true });
   } catch (e) {
-    console.error("Error carregant", key, e);
-    return fallback;
+    console.error(`Error desant a "${collectionName}/${id}"`, e);
   }
 }
 
-export async function saveJSON(key, value) {
+export async function updateItem(collectionName, id, fields) {
   try {
-    const ref = doc(db, "la-vinya", key);
-    await setDoc(ref, { value });
+    await updateDoc(doc(db, collectionName, id), fields);
   } catch (e) {
-    console.error("Error desant", key, e);
+    console.error(`Error actualitzant "${collectionName}/${id}"`, e);
   }
 }
 
-export function subscribeJSON(key, fallback, callback) {
-  const ref = doc(db, "la-vinya", key);
-  return onSnapshot(ref, (snap) => {
-    if (snap.exists()) callback(snap.data().value);
-    else callback(fallback);
-  });
+export async function deleteItem(collectionName, id) {
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+  } catch (e) {
+    console.error(`Error eliminant "${collectionName}/${id}"`, e);
+  }
 }
+
+export { arrayUnion, arrayRemove };

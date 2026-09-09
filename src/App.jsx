@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { saveJSON, subscribeJSON } from "./storage";
+import { subscribeCollection, setItem, updateItem, deleteItem, arrayUnion, arrayRemove } from "./storage";
+import { compressImage } from "./imageUtils";
 
 const MEMBERS = [
   { id: "guifre", name: "Guifré", color: "#4a5d3a" },
@@ -26,11 +27,17 @@ function uid() {
 }
 
 const SEED_RECORDS = [
-  { id: "seed1", title: "Capvespre a la finca", date: "", place: "La finca", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/finca.jpg", authorId: "guifre", likes: [] },
-  { id: "seed2", title: "Nit de foguera", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/bonfire.jpg", authorId: "pol", likes: [] },
-  { id: "seed3", title: "Vermut amb vistes", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/chairs.jpg", authorId: "edu", likes: [] },
-  { id: "seed4", title: "Mudança de mobles", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/moving.jpg", authorId: "evan", likes: [] },
+  { id: "seed1", title: "Capvespre a la finca", date: "", place: "La finca", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/finca.jpg", authorId: "guifre", likes: [], createdAt: 4 },
+  { id: "seed2", title: "Nit de foguera", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/bonfire.jpg", authorId: "pol", likes: [], createdAt: 3 },
+  { id: "seed3", title: "Vermut amb vistes", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/chairs.jpg", authorId: "edu", likes: [], createdAt: 2 },
+  { id: "seed4", title: "Mudança de mobles", date: "", place: "", description: "Exemple de record — edita'l o esborra'l quan tinguis contingut real.", photo: "/img/moving.jpg", authorId: "evan", likes: [], createdAt: 1 },
 ];
+
+const inputStyle = { padding: "8px", borderRadius: "8px", border: "1px solid #ccc", fontFamily: "inherit", flex: 1, boxSizing: "border-box" };
+
+function byCreatedDesc(a, b) {
+  return (b.createdAt || 0) - (a.createdAt || 0);
+}
 
 export default function App() {
   const [tab, setTab] = useState("inici");
@@ -43,19 +50,40 @@ export default function App() {
   const [plans, setPlans] = useState([]);
   const [records, setRecords] = useState([]);
   const [profiles, setProfiles] = useState({});
+  const [anecdotes, setAnecdotes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let loaded = 0;
     const check = () => {
       loaded++;
-      if (loaded >= 4) setLoading(false);
+      if (loaded >= 5) setLoading(false);
     };
-    const unsub1 = subscribeJSON("pins", {}, (v) => { setPins(v); check(); });
-    const unsub2 = subscribeJSON("plans", [], (v) => { setPlans(v); check(); });
-    const unsub3 = subscribeJSON("records", SEED_RECORDS, (v) => { setRecords(v); check(); });
-    const unsub4 = subscribeJSON("profiles", {}, (v) => { setProfiles(v); check(); });
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+    const unsub1 = subscribeCollection("pins", (items) => {
+      const map = {};
+      items.forEach((it) => { map[it.id] = it.pin; });
+      setPins(map);
+      check();
+    });
+    const unsub2 = subscribeCollection("plans", (items) => {
+      setPlans(items.slice().sort(byCreatedDesc));
+      check();
+    });
+    const unsub3 = subscribeCollection("records", (items) => {
+      setRecords(items.length ? items.slice().sort(byCreatedDesc) : SEED_RECORDS);
+      check();
+    });
+    const unsub4 = subscribeCollection("profiles", (items) => {
+      const map = {};
+      items.forEach((it) => { map[it.id] = it; });
+      setProfiles(map);
+      check();
+    });
+    const unsub5 = subscribeCollection("anecdotes", (items) => {
+      setAnecdotes(items.slice().sort(byCreatedDesc));
+      check();
+    });
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, []);
 
   function openLogin(memberId) {
@@ -73,8 +101,7 @@ export default function App() {
       return;
     }
     if (!hasPin) {
-      const newPins = { ...pins, [memberId]: pinInput };
-      await saveJSON("pins", newPins);
+      await setItem("pins", memberId, { pin: pinInput });
       setCurrentMember(memberId);
       setLoginOpen(false);
     } else if (pins[memberId] === pinInput) {
@@ -89,75 +116,79 @@ export default function App() {
     setCurrentMember(null);
   }
 
+  // ---- Plans ----
   async function addPlan(plan) {
-    const newPlans = [{ ...plan, id: uid(), creatorId: currentMember, responses: {} }, ...plans];
-    await saveJSON("plans", newPlans);
+    const id = uid();
+    await setItem("plans", id, {
+      ...plan,
+      creatorId: currentMember,
+      responses: {},
+      photos: [],
+      comments: [],
+      createdAt: Date.now(),
+    });
   }
 
   async function respondPlan(planId, response) {
-    const newPlans = plans.map((p) =>
-      p.id === planId ? { ...p, responses: { ...p.responses, [currentMember]: response } } : p
-    );
-    await saveJSON("plans", newPlans);
+    await updateItem("plans", planId, { [`responses.${currentMember}`]: response });
   }
 
   async function deletePlan(planId) {
-    await saveJSON("plans", plans.filter((p) => p.id !== planId));
+    await deleteItem("plans", planId);
   }
 
   async function addPlanPhoto(planId, photoDataUri) {
-    const newPlans = plans.map((p) =>
-      p.id === planId
-        ? { ...p, photos: [...(p.photos || []), { id: uid(), url: photoDataUri, authorId: currentMember }] }
-        : p
-    );
-    await saveJSON("plans", newPlans);
+    await updateItem("plans", planId, {
+      photos: arrayUnion({ id: uid(), url: photoDataUri, authorId: currentMember }),
+    });
   }
 
-  async function deletePlanPhoto(planId, photoId) {
-    const newPlans = plans.map((p) =>
-      p.id === planId ? { ...p, photos: (p.photos || []).filter((ph) => ph.id !== photoId) } : p
-    );
-    await saveJSON("plans", newPlans);
+  async function deletePlanPhoto(planId, photoObj) {
+    await updateItem("plans", planId, { photos: arrayRemove(photoObj) });
   }
 
   async function addPlanComment(planId, text) {
-    const newPlans = plans.map((p) =>
-      p.id === planId
-        ? { ...p, comments: [...(p.comments || []), { id: uid(), text, authorId: currentMember, ts: Date.now() }] }
-        : p
-    );
-    await saveJSON("plans", newPlans);
+    await updateItem("plans", planId, {
+      comments: arrayUnion({ id: uid(), text, authorId: currentMember, ts: Date.now() }),
+    });
   }
 
-  async function deletePlanComment(planId, commentId) {
-    const newPlans = plans.map((p) =>
-      p.id === planId ? { ...p, comments: (p.comments || []).filter((c) => c.id !== commentId) } : p
-    );
-    await saveJSON("plans", newPlans);
+  async function deletePlanComment(planId, commentObj) {
+    await updateItem("plans", planId, { comments: arrayRemove(commentObj) });
   }
 
+  // ---- Records ----
   async function addRecord(record) {
-    const newRecords = [{ ...record, id: uid(), authorId: currentMember, likes: [] }, ...records];
-    await saveJSON("records", newRecords);
+    const id = uid();
+    await setItem("records", id, { ...record, authorId: currentMember, likes: [], createdAt: Date.now() });
   }
 
   async function toggleLike(recordId) {
-    const newRecords = records.map((r) => {
-      if (r.id !== recordId) return r;
-      const liked = r.likes.includes(currentMember);
-      return { ...r, likes: liked ? r.likes.filter((m) => m !== currentMember) : [...r.likes, currentMember] };
+    const record = records.find((r) => r.id === recordId);
+    if (!record) return;
+    const liked = (record.likes || []).includes(currentMember);
+    await updateItem("records", recordId, {
+      likes: liked ? arrayRemove(currentMember) : arrayUnion(currentMember),
     });
-    await saveJSON("records", newRecords);
   }
 
   async function deleteRecord(recordId) {
-    await saveJSON("records", records.filter((r) => r.id !== recordId));
+    await deleteItem("records", recordId);
   }
 
+  // ---- Perfils ----
   async function updateProfile(memberId, data) {
-    const newProfiles = { ...profiles, [memberId]: { ...profiles[memberId], ...data } };
-    await saveJSON("profiles", newProfiles);
+    await setItem("profiles", memberId, data);
+  }
+
+  // ---- Anècdotes ----
+  async function addAnecdote(anecdote) {
+    const id = uid();
+    await setItem("anecdotes", id, { ...anecdote, authorId: currentMember, createdAt: Date.now() });
+  }
+
+  async function deleteAnecdote(anecdoteId) {
+    await deleteItem("anecdotes", anecdoteId);
   }
 
   const memberById = (id) => MEMBERS.find((m) => m.id === id);
@@ -168,7 +199,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 24px", background: "#2e3a24", color: "#f6f1e7", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ fontWeight: "bold", fontSize: "20px", letterSpacing: "1px" }}>🍇 La Vinya</div>
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-          {[["inici", "Inici"], ["colla", "Membres"], ["plans", "Plans"], ["records", "Records"]].map(([key, label]) => (
+          {[["inici", "Inici"], ["colla", "Membres"], ["plans", "Plans"], ["records", "Records"], ["historia", "Història"], ["anecdotes", "Anècdotes"]].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{ background: tab === key ? "#7c5b8e" : "transparent", border: "none", color: "#f6f1e7", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "14px" }}>
               {label}
             </button>
@@ -232,6 +263,16 @@ export default function App() {
             />
           )}
           {tab === "records" && <Records records={records} currentMember={currentMember} memberById={memberById} addRecord={addRecord} toggleLike={toggleLike} deleteRecord={deleteRecord} />}
+          {tab === "historia" && <Historia />}
+          {tab === "anecdotes" && (
+            <Anecdotes
+              anecdotes={anecdotes}
+              currentMember={currentMember}
+              memberById={memberById}
+              addAnecdote={addAnecdote}
+              deleteAnecdote={deleteAnecdote}
+            />
+          )}
         </>
       )}
     </div>
@@ -250,7 +291,6 @@ function Inici({ nextPlan, records, setTab }) {
         </div>
       </div>
       <div style={{ display: "flex", gap: "16px", padding: "24px", flexWrap: "wrap", justifyContent: "center" }}>
-        <StatCard label="13 × 1" sub="Som una colla" />
         <StatCard label={nextPlan ? nextPlan.name : "Cap pla"} sub={nextPlan ? `${nextPlan.date} · ${nextPlan.place || "lloc per decidir"}` : "Encara no hi ha cap pla creat"} />
         <StatCard label={`${records.length} records`} sub="Guardats a l'àlbum" />
       </div>
@@ -271,6 +311,7 @@ function Colla({ profiles, currentMember, updateProfile }) {
   const [editingId, setEditingId] = useState(null);
   const [subtitle, setSubtitle] = useState("");
   const [photo, setPhoto] = useState(null);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
   function startEdit(m) {
@@ -280,17 +321,18 @@ function Colla({ profiles, currentMember, updateProfile }) {
     setEditingId(m.id);
   }
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result);
-    reader.readAsDataURL(file);
+    const compressed = await compressImage(file);
+    setPhoto(compressed);
   }
 
-  function save(e) {
+  async function save(e) {
     e.preventDefault();
-    updateProfile(editingId, { subtitle, photo });
+    setSaving(true);
+    await updateProfile(editingId, { subtitle, photo });
+    setSaving(false);
     setEditingId(null);
   }
 
@@ -327,8 +369,11 @@ function Colla({ profiles, currentMember, updateProfile }) {
                 <form onSubmit={save} style={{ marginTop: "10px", display: "grid", gap: "6px", textAlign: "left" }}>
                   <input placeholder="Subtítol (p. ex. el conductor oficial)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} style={{ ...inputStyle, fontSize: "12px", padding: "5px" }} />
                   <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} style={{ fontSize: "11px" }} />
+                  {photo && <img src={photo} alt="preview" style={{ width: "100%", borderRadius: "8px" }} />}
                   <div style={{ display: "flex", gap: "6px" }}>
-                    <button type="submit" style={{ flex: 1, background: "#4a5d3a", color: "#fff", border: "none", padding: "6px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}>Desa</button>
+                    <button type="submit" disabled={saving} style={{ flex: 1, background: "#4a5d3a", color: "#fff", border: "none", padding: "6px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}>
+                      {saving ? "Desant..." : "Desa"}
+                    </button>
                     <button type="button" onClick={() => setEditingId(null)} style={{ flex: 1, background: "#eee", border: "none", padding: "6px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}>Cancel·la</button>
                   </div>
                 </form>
@@ -340,8 +385,6 @@ function Colla({ profiles, currentMember, updateProfile }) {
     </div>
   );
 }
-
-const inputStyle = { padding: "8px", borderRadius: "8px", border: "1px solid #ccc", fontFamily: "inherit", flex: 1, boxSizing: "border-box" };
 
 function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deletePlan, addPlanPhoto, deletePlanPhoto, addPlanComment, deletePlanComment }) {
   const [showForm, setShowForm] = useState(false);
@@ -403,9 +446,11 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
       <div style={{ marginTop: "20px", display: "grid", gap: "14px" }}>
         {plans.length === 0 && <p style={{ color: "#999" }}>Encara no hi ha cap pla.</p>}
         {plans.map((p) => {
-          const confirmed = Object.entries(p.responses || {}).filter(([, r]) => r === "va");
-          const maybe = Object.entries(p.responses || {}).filter(([, r]) => r === "potser");
-          const myResponse = currentMember ? p.responses?.[currentMember] : null;
+          const responses = p.responses || {};
+          const confirmed = Object.entries(responses).filter(([, r]) => r === "va");
+          const maybe = Object.entries(responses).filter(([, r]) => r === "potser");
+          const cant = Object.entries(responses).filter(([, r]) => r === "no_puc");
+          const myResponse = currentMember ? responses[currentMember] : null;
           const photoCount = (p.photos || []).length;
           const commentCount = (p.comments || []).length;
           return (
@@ -423,11 +468,13 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
               <div style={{ fontSize: "12px", color: "#999", marginTop: "8px" }}>Creat per {memberById(p.creatorId)?.name || "?"}</div>
               <div style={{ fontSize: "13px", marginTop: "10px" }}><strong>Hi van ({confirmed.length}):</strong> {confirmed.map(([id]) => memberById(id)?.name).join(", ") || "—"}</div>
               <div style={{ fontSize: "13px" }}><strong>Potser ({maybe.length}):</strong> {maybe.map(([id]) => memberById(id)?.name).join(", ") || "—"}</div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+              <div style={{ fontSize: "13px" }}><strong>No poden ({cant.length}):</strong> {cant.map(([id]) => memberById(id)?.name).join(", ") || "—"}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", flexWrap: "wrap", gap: "8px" }}>
                 {currentMember && (
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <button onClick={() => respondPlan(p.id, "va")} style={{ background: myResponse === "va" ? "#4a5d3a" : "#eee", color: myResponse === "va" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Hi vaig</button>
                     <button onClick={() => respondPlan(p.id, "potser")} style={{ background: myResponse === "potser" ? "#7c5b8e" : "#eee", color: myResponse === "potser" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>Potser</button>
+                    <button onClick={() => respondPlan(p.id, "no_puc")} style={{ background: myResponse === "no_puc" ? "#9a4f4f" : "#eee", color: myResponse === "no_puc" ? "#fff" : "#333", border: "none", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }}>No puc</button>
                   </div>
                 )}
                 <button
@@ -447,14 +494,16 @@ function Plans({ plans, currentMember, memberById, addPlan, respondPlan, deleteP
 
 function PlanDetail({ plan, currentMember, memberById, onBack, addPlanPhoto, deletePlanPhoto, addPlanComment, deletePlanComment }) {
   const [commentText, setCommentText] = useState("");
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => addPlanPhoto(plan.id, reader.result);
-    reader.readAsDataURL(file);
+    setUploading(true);
+    const compressed = await compressImage(file);
+    await addPlanPhoto(plan.id, compressed);
+    setUploading(false);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -481,7 +530,8 @@ function PlanDetail({ plan, currentMember, memberById, onBack, addPlanPhoto, del
       <h3 style={{ fontSize: "15px", color: "#4a5d3a" }}>Fotos</h3>
       {currentMember && (
         <div style={{ marginBottom: "12px" }}>
-          <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} />
+          <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} disabled={uploading} />
+          {uploading && <span style={{ fontSize: "12px", color: "#999", marginLeft: "8px" }}>Pujant...</span>}
         </div>
       )}
       {photos.length === 0 && <p style={{ color: "#999", fontSize: "13px" }}>Encara no hi ha cap foto.</p>}
@@ -491,7 +541,7 @@ function PlanDetail({ plan, currentMember, memberById, onBack, addPlanPhoto, del
             <img src={ph.url} alt="" style={{ width: "100%", height: "100px", objectFit: "cover", borderRadius: "8px", display: "block" }} />
             {currentMember === ph.authorId && (
               <button
-                onClick={() => deletePlanPhoto(plan.id, ph.id)}
+                onClick={() => deletePlanPhoto(plan.id, ph)}
                 style={{ position: "absolute", top: "4px", right: "4px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "6px", fontSize: "10px", cursor: "pointer", padding: "2px 5px" }}
               >
                 ✕
@@ -509,7 +559,7 @@ function PlanDetail({ plan, currentMember, memberById, onBack, addPlanPhoto, del
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontSize: "12px", fontWeight: "bold", color: "#4a5d3a" }}>{memberById(c.authorId)?.name || "?"}</span>
               {currentMember === c.authorId && (
-                <button onClick={() => deletePlanComment(plan.id, c.id)} style={{ background: "transparent", border: "none", color: "#a13", cursor: "pointer", fontSize: "11px" }}>
+                <button onClick={() => deletePlanComment(plan.id, c)} style={{ background: "transparent", border: "none", color: "#a13", cursor: "pointer", fontSize: "11px" }}>
                   Elimina
                 </button>
               )}
@@ -544,20 +594,22 @@ function Records({ records, currentMember, memberById, addRecord, toggleLike, de
   const [place, setPlace] = useState("");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState(null);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result);
-    reader.readAsDataURL(file);
+    const compressed = await compressImage(file);
+    setPhoto(compressed);
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     if (!title) return;
-    addRecord({ title, date, place, description, photo });
+    setSaving(true);
+    await addRecord({ title, date, place, description, photo });
+    setSaving(false);
     setTitle(""); setDate(""); setPlace(""); setDescription(""); setPhoto(null);
     if (fileRef.current) fileRef.current.value = "";
     setShowForm(false);
@@ -582,12 +634,14 @@ function Records({ records, currentMember, memberById, addRecord, toggleLike, de
           <textarea placeholder="Explica la història..." value={description} onChange={(e) => setDescription(e.target.value)} style={{ ...inputStyle, minHeight: "60px" }} />
           <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} />
           {photo && <img src={photo} alt="preview" style={{ maxWidth: "100%", borderRadius: "10px" }} />}
-          <button type="submit" style={{ background: "#4a5d3a", color: "#fff", border: "none", padding: "10px", borderRadius: "10px", cursor: "pointer" }}>Publicar record</button>
+          <button type="submit" disabled={saving} style={{ background: "#4a5d3a", color: "#fff", border: "none", padding: "10px", borderRadius: "10px", cursor: "pointer" }}>
+            {saving ? "Publicant..." : "Publicar record"}
+          </button>
         </form>
       )}
       <div style={{ columns: "260px", columnGap: "16px", marginTop: "20px" }}>
         {records.map((r) => {
-          const liked = currentMember && r.likes.includes(currentMember);
+          const liked = currentMember && (r.likes || []).includes(currentMember);
           return (
             <div key={r.id} style={{ background: "#fff", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", marginBottom: "16px", breakInside: "avoid" }}>
               {r.photo && <img src={r.photo} alt={r.title} style={{ width: "100%", display: "block" }} />}
@@ -598,7 +652,7 @@ function Records({ records, currentMember, memberById, addRecord, toggleLike, de
                 <div style={{ fontSize: "12px", color: "#999", marginTop: "8px" }}>Publicat per {memberById(r.authorId)?.name || "?"}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
                   <button disabled={!currentMember} onClick={() => toggleLike(r.id)} style={{ background: "transparent", border: "none", cursor: currentMember ? "pointer" : "default", fontSize: "14px", color: liked ? "#a13" : "#999" }}>
-                    {liked ? "♥" : "♡"} {r.likes.length}
+                    {liked ? "♥" : "♡"} {(r.likes || []).length}
                   </button>
                   {currentMember === r.authorId && (
                     <button onClick={() => deleteRecord(r.id)} style={{ background: "transparent", border: "none", color: "#a13", cursor: "pointer", fontSize: "12px" }}>Elimina</button>
@@ -608,6 +662,115 @@ function Records({ records, currentMember, memberById, addRecord, toggleLike, de
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function Historia() {
+  return (
+    <div style={{ padding: "30px", maxWidth: "640px" }}>
+      <h2 style={{ color: "#4a5d3a" }}>Història</h2>
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: "14px",
+          padding: "24px",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+          lineHeight: "1.7",
+          fontSize: "15px",
+        }}
+      >
+        <p>
+          La finca data de l'any 1926. Va ser durant generacions propietat de la família
+          Marchena, fins que, gràcies al nostre amic <strong>Eduard</strong>, va arribar a
+          les nostres mans.
+        </p>
+        <p>
+          L'any 2022 vam engegar un procés per tornar-li la dignitat que es mereixia,
+          després d'anys d'abandonament. Des de llavors s'ha convertit en el bressol de
+          l'<strong>Associació Cultural Amics de la Vinya (A.C.A.V.)</strong>, i testimoni
+          de grans nits i encara més grans ressaques.
+        </p>
+        <p>
+          Productora d'herbes verdes i d'algun intent (encara per confirmar) de moscatell,
+          la finca compta ja amb la seva pròpia sala sagrada de família: <strong>la
+          cuina</strong>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Anecdotes({ anecdotes, currentMember, memberById, addAnecdote, deleteAnecdote }) {
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file);
+    setPhoto(compressed);
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!title.trim() || !body.trim()) return;
+    setSaving(true);
+    await addAnecdote({ title: title.trim(), body: body.trim(), photo });
+    setSaving(false);
+    setTitle("");
+    setBody("");
+    setPhoto(null);
+    if (fileRef.current) fileRef.current.value = "";
+    setShowForm(false);
+  }
+
+  return (
+    <div style={{ padding: "30px", maxWidth: "640px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ color: "#4a5d3a" }}>Anècdotes</h2>
+        {currentMember && (
+          <button onClick={() => setShowForm(!showForm)} style={{ background: "#7c5b8e", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "10px", cursor: "pointer" }}>
+            {showForm ? "Tanca" : "+ Nova anècdota"}
+          </button>
+        )}
+      </div>
+      {!currentMember && <p style={{ color: "#999", fontSize: "13px" }}>Selecciona el teu nom a dalt per explicar una anècdota.</p>}
+      {showForm && (
+        <form onSubmit={submit} style={{ background: "#fff", padding: "18px", borderRadius: "14px", marginTop: "14px", display: "grid", gap: "10px" }}>
+          <input placeholder="Títol de l'anècdota" value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} />
+          <textarea placeholder="Explica'ns què va passar..." value={body} onChange={(e) => setBody(e.target.value)} style={{ ...inputStyle, minHeight: "100px" }} />
+          <input type="file" accept="image/*" ref={fileRef} onChange={handleFile} />
+          {photo && <img src={photo} alt="preview" style={{ maxWidth: "100%", borderRadius: "10px" }} />}
+          <button type="submit" disabled={saving} style={{ background: "#4a5d3a", color: "#fff", border: "none", padding: "10px", borderRadius: "10px", cursor: "pointer" }}>
+            {saving ? "Publicant..." : "Publicar anècdota"}
+          </button>
+        </form>
+      )}
+      <div style={{ marginTop: "20px", display: "grid", gap: "16px" }}>
+        {anecdotes.length === 0 && <p style={{ color: "#999" }}>Encara no hi ha cap anècdota.</p>}
+        {anecdotes.map((a) => (
+          <div key={a.id} style={{ background: "#fff", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            {a.photo && <img src={a.photo} alt={a.title} style={{ width: "100%", maxHeight: "320px", objectFit: "cover", display: "block" }} />}
+            <div style={{ padding: "16px" }}>
+              <div style={{ fontWeight: "bold", fontSize: "16px" }}>{a.title}</div>
+              <div style={{ fontSize: "14px", marginTop: "8px", whiteSpace: "pre-wrap" }}>{a.body}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
+                <div style={{ fontSize: "12px", color: "#999" }}>Explicada per {memberById(a.authorId)?.name || "?"}</div>
+                {currentMember === a.authorId && (
+                  <button onClick={() => deleteAnecdote(a.id)} style={{ background: "transparent", border: "none", color: "#a13", cursor: "pointer", fontSize: "12px" }}>
+                    Elimina
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

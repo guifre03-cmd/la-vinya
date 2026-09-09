@@ -23,16 +23,16 @@ A la consola de Firebase: Firestore Database → pestanya "Reglas", i enganxa:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /la-vinya/{doc} {
-      allow read, write: if true;
-    }
+    match /pins/{doc} { allow read, write: if true; }
+    match /plans/{doc} { allow read, write: if true; }
+    match /records/{doc} { allow read, write: if true; }
+    match /profiles/{doc} { allow read, write: if true; }
+    match /anecdotes/{doc} { allow read, write: if true; }
   }
 }
 ```
 
-(Això deixa la col·lecció "la-vinya" oberta a qui tingui l'enllaç de la web —
-igual de privat que compartir la contrasenya/PIN dins la colla. No cal compte
-de Google per part dels membres.)
+⚠️ **Important si ja tenies regles antigues amb `match /la-vinya/{doc}`:** aquesta versió del codi ha canviat com es guarden les dades (ara cada foto/pla/record és el seu propi document, en lloc de compartir-ne un de sol). Torna a publicar aquestes regles noves — les antigues ja no protegeixen res útil, i les dades de proves anteriors no es migren soles (es perden, però eren només proves).
 
 ## Pas 4 — Pujar el codi a GitHub
 1. Crea un compte a https://github.com si no en tens.
